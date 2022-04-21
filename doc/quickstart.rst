@@ -20,7 +20,7 @@ What ingredients do I need to start with xgcm?
 How to get started - Step by step
 ---------------------------------
 The `Grid` object is essential to the way xgcm works. It stores information about the grid setup for you. 
-`Grid` knows about the logical [axes], which dimensions and metrics (represented by xarray [coordinates](http://xarray.pydata.org/en/stable/data-structures.html#coordinates)) belong to each axis.
+`Grid` knows about the logical [axes], which dimensions and metrics (represented by xarray `coordinates <http://xarray.pydata.org/en/stable/data-structures.html#coordinates>`_) belong to each axis.
 All this information will only have to be set once and then you can focus on whatever task is at hand without needing to remember the details.
 This becomes especially handy when you try to compute things on multiple datasets with different grid setups. 
 
@@ -77,7 +77,7 @@ This becomes especially handy when you try to compute things on multiple dataset
 3. Determine if your axes are periodic or define a boundary condition.
     You can specify this either for all axes ``Grid(ds, periodic=False, boundary='fill')``
     or per axis, by passing a list/dictionary with separate axis names ``Grid(ds, periodic=['X'], boundary={'Y':'fill'}``.
-    The boundary condition is used for operations at the boundary points, when an extra point needs to be added.
+    The boundary condition is used for operations at the boundary points (of the array, not physical boundaries like continents), when an extra point needs to be added.
 4. Parse the `metrics <grid_metrics.ipynb>`_.
     For this you should find out all the variables in your dataset that represent a metric (distance, area, volume),
     and sort them according to the axis or axes they represent. You can then pass a dictionary with a tuple of the representative axis/axes as key
@@ -95,3 +95,126 @@ Finally put all those steps together:
                 boundary = [], #From step 3
                 metrics = {...}, # From step 4
                 )
+
+Explanation of the grid object output
+-------------------------------------
+
+You can get information about the grid by printing it:
+
+.. code-block:: python
+
+    print(grid)
+
+You should get a result looking similar to:
+
+.. code-block:: python
+
+    <xgcm.Grid>
+    X Axis (periodic, boundary=None):
+      * center   xq --> left
+      * left     xh --> center
+    Z Axis (not periodic, boundary='extend'):
+      * center   z_center --> right
+      * right    z_face   --> center
+
+First, we see the list of all axes detected, here ``X`` and ``Z``.
+
+Followed in the parenthesis, are the default periodic and boundary conditions for each axis.
+Please mind that the following version of xgcm will refactor these names.
+
+Then for each axis the positions are shown. Here the ``X`` axis has 2 positions,
+``center`` and ``left``, and the ``Z`` axis also has 2 positions, ``center`` and ``right``.
+5 positions are available in xgcm, ``center``, ``left``, ``right``, ``inner`` and ``outer``,
+:ref:`see the positions doc <axis_position>`
+
+Following the position, is the name of the dataset dimension, e.g.
+``xq`` is the name of the dimension of the ``center`` position of the ``X`` axis,
+and ``xh``the name of the dimension of the ``left``  position of the ``X`` axis.
+
+The arrow ``-->`` indicates the default shift (used for grid operations).
+It is possible to use xgcm without understanding the shifts, as the grid object
+handles these shifts.
+
+
+What do the metrics represent?
+------------------------------
+
+Simple periodic case
+....................
+
+Let's define a simple grid with a single periodic axis, with a left point (face)
+``F`` and a center point ``C``, the numbers represent the index.
+Please note that the last F and C points are equal to the 1st ones (due to periodicity).
+From this grid we define 2 types of metrics, that represent the distance between the faces (F)
+and the center (C) points. Thus the distance between the faces defines the metric associated
+with the C point (we call it ``dxC``), and the distance between the center points
+defines the metric associated with the F point (called here ``dxF``).
+
+::
+
+
+
+    |             |             |             |             |
+    F------C------F------C------F------C------F------C------F------C
+    0      0      1      1      2      2      3      3      0      0
+    |             |             |             |             |
+    |<----dxC---->|<----dxC---->|<----dxC---->|<----dxC---->|
+    |             |             |             |             |
+           |<----dxF---->|<----dxF---->|<----dxF---->|<----dxF---->|
+
+
+
+You can see that each metric is linked to each point (the point ``C[0]`` has the metric
+``dxC[0]``, the point ``F[1]`` has the metric ``dxF[1]``, etc). In simple case the distances
+can be identical and thus only scalar
+(in the case of perfectly squared grid cells), in more complex cases
+they can vary with e.g. longitude, latitude, depth, or time. What matters is that the
+metric dimensions can be broadcasted against the dimensions of variables living at the
+same position (e.g. temperature at the cell center).
+
+In this simple periodic case, the grid / array boundaries are simple to deal with
+(extend the array). The next section gives some keys on how to deal with closed boundaries.
+
+
+Not periodic case
+.................
+
+Let's take the same grid as previously, but non periodic:
+
+::
+
+
+
+    |             |             |             |
+    F------C------F------C------F------C------F------C
+    0      0      1      1      2      2      3      3
+    |             |             |             |
+    |<----dxC---->|<----dxC---->|<----dxC---->|
+    |             |             |             |
+           |<----dxF---->|<----dxF---->|<----dxF---->|
+
+    
+We hit here a problem: the first F point ``F[0]`` and the last C point ``C[3]``
+are not surrounded by respectively 2 C points or 2 F points. In the easy case where these
+point are located inside the bathymetry or land (e.g. if one defines a square grid of
+the northern Atlantic Ocean, the eastern and western boundaries will probably
+be located in Europe and America), any number can fit for the metric, as it will
+not be used in any physical calculation. Note that a metric needs to exists in this point,
+it is not possible to have a shorter array!
+In more complex cases, the choice of the value for ``dxF[0]`` and ``dxC[3]`` is left to
+the user. A common choice is represented below (we only show here for the ``dxF`` metric,
+but it is similar for the ``dxC`` one).
+
+
+::
+
+
+
+    |             |             |             |
+    F------C------F------C------F------C------F------C
+    0      0      1      1      2      2      3      3
+    |             |             |             |
+    |<dxF->|<----dxF---->|<----dxF---->|<----dxF---->|
+
+
+Making this choice we only take the distance between ``F[0]`` and ``C[0]``.
